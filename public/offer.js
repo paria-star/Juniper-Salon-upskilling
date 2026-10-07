@@ -44,7 +44,7 @@ async function reply(accept) {
   $("result").textContent = res.ok
     ? accept ? "Thanks! We're checking, and we'll text you right away to confirm." : "No problem. You stay on our waitlist."
     : "Something went wrong. Please call the salon.";
-  setTimeout(load, 1200);
+  setTimeout(async () => { await load(); $("result").hidden = true; }, 1200); // the page itself now shows the outcome
 }
 
 $("yes").addEventListener("click", () => reply(true));

@@ -2,6 +2,8 @@
 const $ = (id) => document.getElementById(id);
 let currentId = null;
 let latest = null;
+let lastDetailSig = "";
+let lastCalSig = "";
 
 function el(tag, props = {}, ...kids) {
   const node = document.createElement(tag);
@@ -41,19 +43,22 @@ async function loadForm() {
   refreshEligible();
 }
 
+let eligibleRequest = 0;
 async function refreshEligible() {
-  const list = $("eligible-list");
+  const mine = ++eligibleRequest; // overlapping updates: only the newest one may draw
   const { service, stylist, date, time, duration } = { service: $("service").value, stylist: $("stylist").value, date: $("date").value, time: $("time").value, duration: $("duration").value };
-  list.replaceChildren();
-  if (!service || !date || !time) return;
+  if (!service || !date || !time) return $("eligible-list").replaceChildren();
+  let items;
   try {
     const q = new URLSearchParams({ service, stylist, date, time, duration });
     const people = await api(`/api/eligible?${q}`);
-    if (!people.length) list.append(el("li", {}, "Nobody on the waitlist fits this slot."));
-    for (const p of people) list.append(el("li", {}, p.name, " ", el("small", {}, p.stylist ? `(wants ${p.stylist})` : "(any stylist)")));
+    items = people.length
+      ? people.map((p) => el("li", {}, p.name, " ", el("small", {}, p.stylist ? `(wants ${p.stylist})` : "(any stylist)")))
+      : [el("li", {}, "Nobody on the waitlist fits this slot.")];
   } catch (e) {
-    list.append(el("li", {}, e.message));
+    items = [el("li", {}, e.message)];
   }
+  if (mine === eligibleRequest) $("eligible-list").replaceChildren(...items);
 }
 for (const id of ["service", "stylist", "date", "time", "duration"]) $(id).addEventListener("change", refreshEligible);
 
@@ -96,6 +101,7 @@ async function act(path, body) {
     if (path === "remove") {
       currentId = null;
       latest = null;
+      lastDetailSig = "";
       $("detail").hidden = true;
       $("empty").hidden = false;
       return await renderRecent();
@@ -113,7 +119,7 @@ function renderActions(s) {
   const add = (label, path, body, cls = "") => box.append(el("button", { class: cls, onclick: () => act(path, body) }, label));
   if (s.phase === "offer_out") add("Skip this person", "skip");
   if (s.phase === "waiting_for_texting_hours") add("Send now anyway", "send-now");
-  if (["starting", "waiting_for_texting_hours", "offer_out"].includes(s.phase)) add("Cancel this opening", "cancel", { reason: "Canceled by staff" }, "danger");
+  if (["starting", "waiting_for_texting_hours", "offer_out"].includes(s.phase)) add("Cancel this opening", "cancel", {}, "danger");
   if (s.phase === "unfilled" || s.phase === "canceled") add("Remove from calendar", "remove", {}, "danger");
   if (s.phase === "filled") add("I put them on the calendar", "mark-booked");
   if (s.phase === "filled") {
@@ -223,7 +229,9 @@ function renderCalendar() {
     col.style.backgroundSize = `100% ${HOUR_PX}px`;
     col.addEventListener("click", (event) => {
       if (event.target !== col) return;
-      const hour = first + Math.floor(event.offsetY / HOUR_PX);
+      // measure against the column's own box, so it stays right under page zoom
+      const box = col.getBoundingClientRect();
+      const hour = first + Math.min(rows - 1, Math.max(0, Math.floor(((event.clientY - box.top) / box.height) * rows)));
       $("date").value = isoDate(d);
       $("time").value = `${pad2(hour)}:00`;
       refreshEligible();
@@ -283,21 +291,32 @@ function renderCalendar() {
 }
 
 async function renderRecent() {
-  openings = await api("/api/openings").catch(() => openings);
-  renderCalendar();
+  const fresh = await api("/api/openings").catch(() => openings);
+  const sig = `${calView}|${calAnchor.toDateString()}|${currentId}|${JSON.stringify(fresh)}`;
+  openings = fresh;
+  if (sig !== lastCalSig) {
+    lastCalSig = sig;
+    renderCalendar();
+  }
 }
 
-$("view-day").addEventListener("click", () => { calView = "day"; renderCalendar(); });
-$("view-week").addEventListener("click", () => { calView = "week"; renderCalendar(); });
-$("cal-prev").addEventListener("click", () => { calAnchor = addDays(calAnchor, calView === "day" ? -1 : -7); renderCalendar(); });
-$("cal-next").addEventListener("click", () => { calAnchor = addDays(calAnchor, calView === "day" ? 1 : 7); renderCalendar(); });
-$("cal-today").addEventListener("click", () => { calAnchor = new Date(); renderCalendar(); });
+$("view-day").addEventListener("click", () => { calView = "day"; lastCalSig = ""; renderCalendar(); });
+$("view-week").addEventListener("click", () => { calView = "week"; lastCalSig = ""; renderCalendar(); });
+$("cal-prev").addEventListener("click", () => { calAnchor = addDays(calAnchor, calView === "day" ? -1 : -7); lastCalSig = ""; renderCalendar(); });
+$("cal-next").addEventListener("click", () => { calAnchor = addDays(calAnchor, calView === "day" ? 1 : 7); lastCalSig = ""; renderCalendar(); });
+$("cal-today").addEventListener("click", () => { calAnchor = new Date(); lastCalSig = ""; renderCalendar(); });
 
 async function refresh() {
   if (!currentId) return renderRecent();
   try {
-    latest = await api(`/api/openings/${encodeURIComponent(currentId)}`);
-    renderDetail(latest);
+    const fresh = await api(`/api/openings/${encodeURIComponent(currentId)}`);
+    // redraw only when something changed, so buttons are not replaced under the user's mouse mid-click
+    const sig = `${currentId}|${JSON.stringify(fresh)}`;
+    if (sig !== lastDetailSig) {
+      lastDetailSig = sig;
+      latest = fresh;
+      renderDetail(latest);
+    }
   } catch (e) {
     $("summary").textContent = e.message;
   }

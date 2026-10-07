@@ -155,7 +155,7 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
     s.offer = undefined;
     s.phase = "canceled";
     s.endedReason = reason || "Canceled by staff";
-    s.summary = `Canceled by staff. ${s.endedReason}`;
+    s.summary = reason ? `Canceled by staff. ${reason}` : "Canceled by staff.";
     if (holder) {
       const row = rowOf(holder.entryId);
       if (row) row.state = "withdrawn";
