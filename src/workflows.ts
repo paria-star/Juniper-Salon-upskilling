@@ -177,10 +177,20 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
   setHandler(cancelOpeningSignal, async ({ reason }: CancelInput) => {
     if (isOver()) return;
     const holder = s.offer;
+    const confirmed = s.filledBy; // staff can cancel after someone was already confirmed
     s.offer = undefined;
+    s.filledBy = undefined;
     s.phase = "canceled";
     s.endedReason = reason || "Canceled by staff";
     s.summary = reason ? `Canceled by staff. ${reason}` : "Canceled by staff.";
+    if (confirmed) {
+      // Lena: "the client should be told it's no longer available." Their request is unmet again, so they go back on the list.
+      const row = rowOf(confirmed.entryId);
+      if (row) row.state = "booking_canceled";
+      await act.releaseEntry({ entryId: confirmed.entryId, openingId: input.openingId });
+      await textClient(confirmed.entryId, `Your ${input.service} appointment on ${when} is no longer available. We're sorry about that. You're back on our waitlist. - Juniper Salon`);
+      await tellFrontDesk(`CANCELED: ${input.service} on ${when}. Staff canceled it and ${confirmed.name} has been told.`);
+    }
     if (holder) {
       const row = rowOf(holder.entryId);
       if (row) row.state = "withdrawn";

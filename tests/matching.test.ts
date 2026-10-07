@@ -65,3 +65,11 @@ test("durations read naturally", () => {
   assert.equal(formatDuration(90), "1 hour 30 minutes");
   assert.equal(formatDuration(180), "3 hours");
 });
+
+test("an all-day availability (00:00 to 24:00) fits an appointment at any start time, even late in the evening", () => {
+  const allDay = { days: [0, 1, 2, 3, 4, 5, 6], from: "00:00", to: "24:00" };
+  for (const hour of [0, 6, 12, 18, 22, 23]) {
+    const at = Date.parse(`2026-10-10T${String(hour).padStart(2, "0")}:00:00Z`);
+    assert.equal(canMakeIt(allDay, at, 0, 60), true, `start at ${hour}:00`);
+  }
+});

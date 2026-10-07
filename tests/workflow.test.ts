@@ -18,7 +18,7 @@ import {
 import type { OpeningInput, OpeningStatus, WaitlistEntry } from "../src/types";
 
 const TASK_QUEUE = "juniper-test";
-const everyDay = { days: [0, 1, 2, 3, 4, 5, 6], from: "00:00", to: "23:59" };
+const everyDay = { days: [0, 1, 2, 3, 4, 5, 6], from: "00:00", to: "24:00" };
 const person = (id: string, joined: string, over: Partial<WaitlistEntry> = {}): WaitlistEntry => ({
   id,
   name: id.toUpperCase(),
@@ -249,6 +249,21 @@ test("a question is flagged for staff and is never treated as acceptance", async
   await until(handle, (s) => s.phase === "filled" && s.filledBy?.entryId === "ann", "ann accepted after her question");
   await handle.signal(markBookedSignal);
   await handle.result();
+});
+
+test("if staff cancel after someone was confirmed, that client is told and goes back on the waiting list", async () => {
+  // Found by the randomized test: this used to leave the confirmed client untold and still marked fulfilled.
+  const handle = await start();
+  await until(handle, (s) => holder(s) === "ann", "offer to ann");
+  await handle.signal(replySignal, { entryId: "ann", accept: true });
+  await until(handle, (s) => s.phase === "filled" && s.messages.some((m) => m.kind === "front_desk"), "filled");
+  await handle.signal(cancelOpeningSignal, {});
+  const final = await handle.result();
+  assert.equal(final.phase, "canceled");
+  assert.equal(final.filledBy, undefined);
+  assert.equal(final.people.find((p) => p.entryId === "ann")?.state, "booking_canceled");
+  assert.ok(final.messages.some((m) => m.to === "ANN" && m.text.includes("no longer available")));
+  assert.equal(fulfilled.has("ann"), false);
 });
 
 test("a late yes after the slot is taken gets a quick 'already taken' message and stays on the waitlist", async () => {

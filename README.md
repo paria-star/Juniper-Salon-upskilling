@@ -17,7 +17,7 @@ npm run dev
 - Temporal Web UI: <http://localhost:8233>
 - Stop the local Temporal service afterwards with `npm run stop`.
 
-Other commands: `npm test` (28 tests, no Docker needed) and `npm run typecheck`.
+Other commands: `npm test` (35 tests, no Docker needed) and `npm run typecheck`.
 
 ## Try it in two minutes
 
@@ -74,6 +74,11 @@ The full chat is in [`docs/customer-chat.md`](docs/customer-chat.md). Quotes bel
 6. **Appointment length is a field staff choose** (default 1 hour). Lena said lengths range from about 30 minutes to three hours, but not that staff would enter it, so this is my addition. I also decided that the whole appointment must fit inside a person's availability.
 7. **If a booking is canceled** (the client backs out, or the stylist becomes unavailable), that person's request is unmet again, so they go back on the waiting list. Lena described fulfilled requests but not this case.
 8. **A question does not pause the timer.** Staff follow up while the offer stays open. Real text replies are not parsed; the question box on the reply page stands in for "a reply that is not a clear yes or no".
+9. **An opening with no stylist chosen matches everyone** for that service, including people who listed a preferred stylist. Lena said preferences apply "if they listed one", not what to do when the opening has no stylist.
+10. **Someone who says no or does not answer stays on the waitlist** for other openings, but is not offered the same opening again. Lena said this for clients who were too late; I applied it to declines and timeouts too.
+11. **Each person's availability is a set of weekdays plus one time range** (for example weekdays 9 AM to 6 PM). Lena said "general availability"; this format is mine.
+12. **An offer's deadline is the reply time or the appointment time, whichever comes first.** Staff can set the reply time from 1 minute to 24 hours. Offers stop when the appointment starts, as Lena said ("right up until the appointment time"), with no special rule for the last hour.
+13. **Reply links have no login and use simple ids**, so anyone holding a link can answer for that person. That matches "no account", but a real version needs links that cannot be guessed. The waitlist is also kept in memory and the fulfilled list in a small local file; a real version would use the salon's own data.
 
 ## Next step
 
@@ -95,6 +100,8 @@ Not covered yet:
 - `public/`: staff page (`index.html`) and client reply page (`offer.html`)
 - `tests/`: matching and Workflow tests using Temporal's time-skipping test environment
 - `docs/customer-chat.md`: the customer conversation
+- `docs/testing.md`: how it was tested (including a randomized test and a crash-and-restart test) and what is not tested
+- `scripts/restart-test.sh`: kills the Worker and restarts Temporal to show openings survive
 - `evidence/`: Temporal Web UI screenshot of one Workflow
 
 Built with an AI coding agent (Claude), as the assessment instructions allow.
