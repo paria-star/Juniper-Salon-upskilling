@@ -52,7 +52,7 @@ async function askStaff() {
   const res = await fetch(`/api/openings/${encodeURIComponent(openingId)}/question`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entryId, note: $("note").value }),
+    body: JSON.stringify({ entryId, note: $("question-text").value }),
   });
   $("askbox").hidden = true;
   $("btns").hidden = true;
@@ -61,7 +61,7 @@ async function askStaff() {
   setTimeout(async () => { await load(); $("result").hidden = true; }, 1200);
 }
 
-$("ask").addEventListener("click", () => { $("askbox").hidden = false; $("note").focus(); });
+$("ask").addEventListener("click", () => { $("askbox").hidden = false; $("question-text").focus(); });
 $("send-question").addEventListener("click", askStaff);
 $("yes").addEventListener("click", () => reply(true));
 $("no").addEventListener("click", () => reply(false));
