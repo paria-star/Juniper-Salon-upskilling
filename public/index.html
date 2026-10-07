@@ -3,31 +3,100 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Temporal assessment starter</title>
+    <title>Juniper Salon: last-minute openings</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main>
-      <p class="eyebrow">Temporal assessment starter</p>
-      <h1>Your environment is connected.</h1>
-      <p class="intro">
-        This neutral demonstration starts a Workflow, waits durably for a
-        Signal, and then completes. Replace it with the experience your
-        customer needs.
-      </p>
-      <section class="card">
-        <h2 id="phase">Ready</h2>
-        <p id="message">Start the demonstration to verify the setup.</p>
-        <button id="start">Start demo Workflow</button>
-        <button id="continue" hidden>Send continue Signal</button>
-        <p class="request-id" id="request-id"></p>
+    <header class="top">
+      <div>
+        <p class="eyebrow">Juniper Salon</p>
+        <h1>Fill last-minute openings</h1>
+      </div>
+      <p class="sim-note">Prototype. Texts and notifications are <strong>simulated</strong>: nothing is sent, and Square is not touched.</p>
+    </header>
+
+    <main class="layout">
+      <section class="panel" aria-labelledby="new-title">
+        <h2 id="new-title">1. A slot opened up</h2>
+        <form id="opening-form">
+          <label>Service <select id="service" required></select></label>
+          <label>Stylist <select id="stylist"></select></label>
+          <div class="row">
+            <label>Date <input type="date" id="date" required /></label>
+            <label>Time <input type="time" id="time" required /></label>
+          </div>
+          <label>Appointment length
+            <select id="duration"></select>
+            <span class="hint">Lena's appointments run from about 30 minutes to 3 hours. Someone is only offered the slot if the whole appointment fits their availability.</span>
+          </label>
+          <label><span id="wait-label">Seconds each person has to reply</span>
+            <input type="number" id="wait" min="1" max="1440" value="15" required />
+            <span class="hint" id="wait-hint"></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="demo" checked />
+            <span><strong>Demo mode</strong>: waits run 60 times faster (15 minutes takes 15 seconds) and texting hours are ignored.
+              Untick to use real waits and the 8 AM to 8 PM texting window.</span>
+          </label>
+          <button type="submit" class="primary" id="start-btn">Start offering this slot</button>
+          <p class="error" id="form-error" role="alert"></p>
+        </form>
+
+        <h3>Eligible people, in order</h3>
+        <p class="hint">Same service, a time they can make, and their preferred stylist if they listed one. Earliest on the waitlist first.</p>
+        <ol id="eligible-list" class="eligible"></ol>
       </section>
-      <p class="footer">
-        Inspect the execution at
-        <a href="http://localhost:8233" target="_blank">localhost:8233</a>.
-      </p>
+
+      <section class="panel wide" aria-labelledby="status-title">
+        <h2 id="status-title">2. What is happening</h2>
+        <div class="cal-bar">
+          <div class="seg" role="group" aria-label="Calendar view">
+            <button type="button" id="view-day">Day</button>
+            <button type="button" id="view-week" class="on">Week</button>
+          </div>
+          <div class="cal-nav">
+            <button type="button" id="cal-prev" aria-label="Previous">&larr;</button>
+            <button type="button" id="cal-today">Today</button>
+            <button type="button" id="cal-next" aria-label="Next">&rarr;</button>
+          </div>
+          <strong id="cal-title" class="cal-title"></strong>
+        </div>
+        <div id="cal" class="cal"></div>
+        <ul class="legend">
+          <li><i class="k offer_out"></i>Offer out</li>
+          <li><i class="k filled"></i>Filled / booked</li>
+          <li><i class="k waiting_for_texting_hours"></i>Paused</li>
+          <li><i class="k unfilled"></i>Not filled / canceled</li>
+        </ul>
+        <p class="hint">Each block is a cancelled appointment slot. Click a block to see who has the offer. Click an empty hour to start an opening for that time.</p>
+        <div id="detail" hidden>
+          <div class="headline">
+            <span id="phase-badge" class="badge"></span>
+            <p id="summary"></p>
+          </div>
+          <p id="opening-line" class="opening-line"></p>
+          <div id="offer-box" class="offer-box" hidden>
+            <strong id="offer-name"></strong> has the offer.
+            <span id="countdown"></span>
+          </div>
+          <div id="actions" class="actions"></div>
+
+          <h3>People</h3>
+          <table class="people">
+            <thead><tr><th>#</th><th>Name</th><th>Status</th></tr></thead>
+            <tbody id="people-body"></tbody>
+          </table>
+
+          <h3>Messages (simulated)</h3>
+          <ul id="messages" class="messages"></ul>
+        </div>
+        <p id="empty" class="hint">Pick a block on the calendar, or start an opening on the left.</p>
+      </section>
     </main>
+    <footer>
+      Behind this page, each opening is one durable Temporal Workflow. See it at
+      <a href="http://localhost:8233" target="_blank" rel="noopener">localhost:8233</a>.
+    </footer>
     <script src="/app.js"></script>
   </body>
 </html>
-
