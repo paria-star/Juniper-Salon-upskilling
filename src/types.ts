@@ -52,9 +52,18 @@ export type PersonState =
   | "timed_out"
   | "skipped"
   | "withdrawn"
-  | "booking_canceled";
+  | "booking_canceled"
+  | "already_booked"; // fulfilled by another opening, so not offered this one
 
-export type PersonRow = { entryId: string; name: string; phone: string; state: PersonState; at?: string };
+export type PersonRow = {
+  entryId: string;
+  name: string;
+  phone: string;
+  state: PersonState;
+  at?: string;
+  /** The client replied with a question (not a clear yes or no). Staff follow up; it is never treated as acceptance. */
+  flag?: { note: string; at: string };
+};
 
 /** Every text or notification is simulated: it is recorded here and printed by an Activity, never sent. */
 export type Message = { at: string; to: string; kind: "client" | "front_desk"; text: string; link?: string };
@@ -72,6 +81,7 @@ export type OpeningStatus = {
 };
 
 export type ReplyInput = { entryId: string; accept: boolean };
+export type QuestionInput = { entryId: string; note?: string };
 export type CancelInput = { reason?: string };
 export type CancelBookingInput = { reason: "client_canceled" | "stylist_unavailable" };
 
@@ -81,4 +91,5 @@ export type OfferView = {
   message: string;
   opening?: { service: string; stylist: string; startsAt: string; durationMinutes: number };
   expiresAt?: string;
+  flagged?: boolean;
 };

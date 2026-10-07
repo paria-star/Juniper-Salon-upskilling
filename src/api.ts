@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client, Connection } from "@temporalio/client";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { readFulfilled, resetAll } from "./fulfilledStore";
 import { eligibleOrdered } from "./matching";
 import { DEFAULT_TEXTING_WINDOW, SERVICES, STYLISTS, seedWaitlist } from "./seed";
 import type { OfferView, OpeningInput, OpeningStatus } from "./types";
@@ -13,6 +14,7 @@ import {
   getStatusQuery,
   markBookedSignal,
   openingWorkflow,
+  questionSignal,
   replySignal,
   sendNowSignal,
   skipCurrentSignal,
@@ -66,15 +68,30 @@ app.get("/api/config", (_req, res) => {
   res.json({ services: SERVICES, stylists: STYLISTS, textingWindow: DEFAULT_TEXTING_WINDOW });
 });
 
+// The waitlist with each person's status. Someone whose request was fulfilled (booked) is not offered other openings.
+const stillWaiting = () => {
+  const fulfilled = readFulfilled();
+  return waitlist.filter((e) => !(e.id in fulfilled));
+};
+
 app.get("/api/waitlist", (_req, res) => {
-  res.json(waitlist);
+  const fulfilled = readFulfilled();
+  res.json(
+    waitlist.map((e) => ({ id: e.id, name: e.name, service: e.service, stylist: e.stylist ?? null, status: e.id in fulfilled ? "fulfilled" : "waiting", fulfilledBy: fulfilled[e.id] ?? null })),
+  );
+});
+
+// Demo helper only: put everyone back on the waiting list so the demo can be run again.
+app.post("/api/waitlist/reset", (_req, res) => {
+  resetAll();
+  res.json({ reset: true });
 });
 
 // "Show me the eligible waitlist people": same service, a time they can make, their preferred stylist if they listed one.
 app.get("/api/eligible", (req, res) => {
   const { service = "", stylist = "", date = "", time = "", duration = "60" } = req.query as Record<string, string>;
   const slot = parseLocal(date, time);
-  const people = eligibleOrdered(waitlist, { service, stylist, durationMinutes: Number(duration) || 60, ...slot });
+  const people = eligibleOrdered(stillWaiting(), { service, stylist, durationMinutes: Number(duration) || 60, ...slot });
   res.json(people.map(({ id, name, stylist: pref, joinedAt }) => ({ id, name, stylist: pref ?? null, joinedAt })));
 });
 
@@ -94,7 +111,7 @@ app.post("/api/openings", async (req, res) => {
     service,
     stylist,
     waitMinutes: wait,
-    waitlist,
+    waitlist: stillWaiting(),
     speed: demoMode ? 60 : 1, // demo mode: one real second stands for one minute of waiting
     enforceTextingHours: !demoMode,
     textingWindow: DEFAULT_TEXTING_WINDOW,
@@ -117,7 +134,13 @@ app.get("/api/openings", async (_req, res) => {
   const results = await Promise.allSettled(
     found.slice(0, 60).map(async (f) => (await handleOf(f.id)).query<OpeningStatus>(getStatusQuery)),
   );
-  res.json(results.flatMap((r) => (r.status === "fulfilled" ? [{ ...r.value, messages: undefined }] : [])));
+  res.json(
+    results.flatMap((r) =>
+      r.status === "fulfilled"
+        ? [{ ...r.value, messages: undefined, needsStaff: Boolean(r.value.currentOffer && r.value.people.find((p) => p.entryId === r.value.currentOffer?.entryId)?.flag) }]
+        : [],
+    ),
+  );
 });
 
 app.get("/api/openings/:id", async (req, res) => {
@@ -161,6 +184,13 @@ app.post("/api/openings/:id/cancel-booking", async (req, res) => {
 app.get("/api/offers/:id/:entryId", async (req, res) => {
   const view = await (await handleOf(req.params.id)).query<OfferView, [string]>(getOfferViewQuery, req.params.entryId);
   res.json(view);
+});
+// A reply that is not a clear yes or no. It is flagged for staff and never counted as acceptance.
+app.post("/api/openings/:id/question", async (req, res) => {
+  const { entryId, note } = req.body ?? {};
+  if (typeof entryId !== "string") throw Object.assign(new Error("Invalid message."), { status: 400 });
+  await (await handleOf(req.params.id)).signal(questionSignal, { entryId, note: typeof note === "string" ? note.slice(0, 280) : "" });
+  res.status(202).json({ accepted: true });
 });
 app.post("/api/openings/:id/reply", async (req, res) => {
   const { entryId, accept } = req.body ?? {};

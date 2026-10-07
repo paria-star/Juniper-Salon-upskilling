@@ -45,6 +45,11 @@
         <h3>Eligible people, in order</h3>
         <p class="hint">Same service, a time they can make, and their preferred stylist if they listed one. Earliest on the waitlist first.</p>
         <ol id="eligible-list" class="eligible"></ol>
+
+        <h3>The waitlist</h3>
+        <p class="hint">Once someone gets an opening, their request is marked <strong>fulfilled</strong> and they are not offered another one for it.</p>
+        <ul id="waitlist" class="waitlist"></ul>
+        <button type="button" id="reset-waitlist" class="small">Reset demo waitlist</button>
       </section>
 
       <section class="panel wide" aria-labelledby="status-title">
@@ -75,6 +80,7 @@
             <p id="summary"></p>
           </div>
           <p id="opening-line" class="opening-line"></p>
+          <div id="needs-staff" class="needs-staff" hidden></div>
           <div id="offer-box" class="offer-box" hidden>
             <strong id="offer-name"></strong> has the offer.
             <span id="countdown"></span>

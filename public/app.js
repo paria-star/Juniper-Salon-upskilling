@@ -27,7 +27,7 @@ const fmtWhen = (iso) => new Date(iso).toLocaleString([], { weekday: "short", mo
 const fmtLen = (m) => { const h = Math.floor(m / 60), r = m % 60; return [h ? `${h} hr` : "", r ? `${r} min` : ""].filter(Boolean).join(" "); };
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
 const PHASES = { starting: "Starting", waiting_for_texting_hours: "Waiting for texting hours", offer_out: "Offer out", filled: "Filled", booked: "Booked", unfilled: "Not filled", canceled: "Canceled" };
-const STATES = { eligible: "Waiting", offered: "Offer out", accepted: "Said yes", declined: "Said no", timed_out: "No reply", skipped: "Skipped by staff", withdrawn: "Offer withdrawn", booking_canceled: "Canceled booking" };
+const STATES = { eligible: "Waiting", offered: "Offer out", accepted: "Said yes", declined: "Said no", timed_out: "No reply", skipped: "Skipped by staff", withdrawn: "Offer withdrawn", booking_canceled: "Canceled booking", already_booked: "Already booked (other opening)" };
 
 async function loadForm() {
   const config = await api("/api/config");
@@ -141,11 +141,17 @@ function renderDetail(s) {
     $("offer-name").textContent = s.currentOffer.name;
     $("countdown").dataset.expires = s.currentOffer.expiresAt;
   }
+  const asked = s.currentOffer && s.people.find((p) => p.entryId === s.currentOffer.entryId && p.flag);
+  const banner = $("needs-staff");
+  banner.hidden = !asked;
+  if (asked) banner.textContent = `Needs staff: ${asked.name} asked "${asked.flag.note}". This was not treated as a yes. Please follow up. Their offer stays open until the timer runs out.`;
   renderActions(s);
   const body = $("people-body");
   body.replaceChildren();
   s.people.forEach((p, i) => {
-    body.append(el("tr", {}, el("td", {}, String(i + 1)), el("td", {}, p.name), el("td", {}, el("span", { class: `state ${p.state}` }, STATES[p.state] || p.state))));
+    const nameCell = el("td", {}, p.name);
+    if (p.flag) nameCell.append(el("span", { class: "flag" }, `Question for staff: "${p.flag.note}"`));
+    body.append(el("tr", {}, el("td", {}, String(i + 1)), nameCell, el("td", {}, el("span", { class: `state ${p.state}` }, STATES[p.state] || p.state))));
   });
   const list = $("messages");
   list.replaceChildren();
@@ -158,7 +164,7 @@ function renderDetail(s) {
 }
 
 // ---- calendar ----
-const HOUR_PX = 44;
+const HOUR_PX = 56;
 let calView = "week";
 let calAnchor = new Date();
 let openings = [];
@@ -178,7 +184,7 @@ function visibleDays() {
 }
 
 function blockText(o) {
-  const who = o.currentOffer ? `Offer: ${o.currentOffer.name}` : o.filledBy ? `${o.filledBy.name}` : PHASES[o.phase] || o.phase;
+  const who = o.needsStaff ? `NEEDS STAFF: ${o.currentOffer.name}` : o.currentOffer ? `Offer: ${o.currentOffer.name}` : o.filledBy ? `${o.filledBy.name}` : PHASES[o.phase] || o.phase;
   return [`${o.opening.service}${o.opening.stylist ? " \u00b7 " + o.opening.stylist : ""}`, who];
 }
 
@@ -331,4 +337,25 @@ setInterval(() => {
 }, 1000);
 setInterval(refresh, 2000);
 
-loadForm().then(renderRecent);
+// ---- waitlist panel ----
+let lastWaitlistSig = "";
+async function renderWaitlist() {
+  const list = await api("/api/waitlist").catch(() => null);
+  if (!list) return;
+  const sig = JSON.stringify(list);
+  if (sig === lastWaitlistSig) return;
+  const changed = lastWaitlistSig !== "";
+  lastWaitlistSig = sig;
+  $("waitlist").replaceChildren(
+    ...list.map((p) => el("li", {}, `${p.name} \u00b7 ${p.service}${p.stylist ? " \u00b7 " + p.stylist : ""}`, p.status === "fulfilled" ? el("span", { class: "tag-ok" }, "Fulfilled") : el("span", { class: "tag-wait" }, "Waiting"))),
+  );
+  if (changed) refreshEligible();
+}
+$("reset-waitlist").addEventListener("click", async () => {
+  await api("/api/waitlist/reset", { method: "POST", body: {} });
+  lastWaitlistSig = "";
+  await renderWaitlist();
+});
+setInterval(renderWaitlist, 2000);
+
+loadForm().then(renderRecent).then(renderWaitlist);

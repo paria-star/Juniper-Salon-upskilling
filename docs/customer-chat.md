@@ -111,3 +111,17 @@ The four questions are shown as I drafted them for the chat window. Lena's answe
 ## One more point from Lena, sent after the build had started
 
 **Lena:** Our main services are haircuts, color, and blowouts. Appointment lengths range from about 30 minutes to three hours.
+
+## Three follow-up questions after the build (wording as I drafted it; Lena's answers copied exactly)
+
+**Me:** Once a waitlist client gets an opening, what happens to their spot on the list?
+
+**Lena:** No, not for that same request. They should be removed or marked as fulfilled so they don’t get another offer for it.
+
+**Me:** If a client texts back something like "maybe" or asks a question, what do you do today?
+
+**Lena:** It should flag that for staff rather than treating it as acceptance. We can answer questions or follow up ourselves.
+
+**Me:** Do you want a limit on how many times one person is offered openings in a day?
+
+**Lena:** I haven’t thought about a specific limit. It probably depends on their availability and how many openings come up.

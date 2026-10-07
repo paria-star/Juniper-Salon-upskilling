@@ -26,6 +26,7 @@ async function load() {
     $("lines").append(line("Service", v.opening.service), line("Stylist", v.opening.stylist || "Any available stylist"), line("When", fmtWhen(v.opening.startsAt)), line("Length", `about ${v.opening.durationMinutes >= 60 ? `${Math.floor(v.opening.durationMinutes / 60)} hr` : ""}${v.opening.durationMinutes % 60 ? ` ${v.opening.durationMinutes % 60} min` : ""}`.replace("  ", " ").trim()));
   }
   $("btns").hidden = v.status !== "open";
+  if (v.status !== "open") $("askbox").hidden = true;
 }
 
 function fail(text) {
@@ -47,6 +48,21 @@ async function reply(accept) {
   setTimeout(async () => { await load(); $("result").hidden = true; }, 1200); // the page itself now shows the outcome
 }
 
+async function askStaff() {
+  const res = await fetch(`/api/openings/${encodeURIComponent(openingId)}/question`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entryId, note: $("note").value }),
+  });
+  $("askbox").hidden = true;
+  $("btns").hidden = true;
+  $("result").hidden = false;
+  $("result").textContent = res.ok ? "Thanks! A member of our staff will follow up with you. This is not counted as a yes." : "Something went wrong. Please call the salon.";
+  setTimeout(async () => { await load(); $("result").hidden = true; }, 1200);
+}
+
+$("ask").addEventListener("click", () => { $("askbox").hidden = false; $("note").focus(); });
+$("send-question").addEventListener("click", askStaff);
 $("yes").addEventListener("click", () => reply(true));
 $("no").addEventListener("click", () => reply(false));
 load();

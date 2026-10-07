@@ -10,6 +10,7 @@ import {
   getStatusQuery,
   markBookedSignal,
   openingWorkflow,
+  questionSignal,
   replySignal,
   sendNowSignal,
   skipCurrentSignal,
@@ -41,6 +42,8 @@ let environment: TestWorkflowEnvironment;
 let worker: Worker;
 let running: Promise<void>;
 let counter = 0;
+// Stand-in for the shared store of fulfilled requests (entry id -> opening id). Reset for every test.
+const fulfilled = new Map<string, string>();
 
 before(async () => {
   environment = await TestWorkflowEnvironment.createTimeSkipping();
@@ -51,6 +54,13 @@ before(async () => {
     activities: {
       sendText: async () => ({ delivered: true, simulated: true as const }),
       notifyFrontDesk: async () => ({ delivered: true, simulated: true as const }),
+      isStillWaiting: async ({ entryId }: { entryId: string }) => !fulfilled.has(entryId),
+      markFulfilled: async ({ entryId, openingId }: { entryId: string; openingId: string }) => {
+        fulfilled.set(entryId, openingId);
+      },
+      releaseEntry: async ({ entryId, openingId }: { entryId: string; openingId: string }) => {
+        if (fulfilled.get(entryId) === openingId) fulfilled.delete(entryId);
+      },
     },
   });
   running = worker.run();
@@ -84,7 +94,9 @@ function inputFor(nowMs: number, over: Partial<OpeningInput> = {}): OpeningInput
   };
 }
 
-async function start(over: Partial<OpeningInput> = {}) {
+async function start(over: Partial<OpeningInput> = {}, alreadyFulfilled: string[] = []) {
+  fulfilled.clear();
+  for (const id of alreadyFulfilled) fulfilled.set(id, "some-other-opening");
   const input = inputFor(await serverNow(), over);
   const handle = await environment.client.workflow.start(openingWorkflow, {
     workflowId: input.openingId,
@@ -193,6 +205,50 @@ test("the winner tapping yes twice is not told the slot was taken", async () => 
   const final = await handle.result();
   assert.equal(final.messages.filter((m) => m.to === "ANN" && m.text.includes("just taken")).length, 0);
   assert.equal(final.messages.filter((m) => m.text.includes("confirmed")).length, 1);
+});
+
+test("someone whose request is already fulfilled is not offered another slot for it", async () => {
+  const handle = await start({}, ["ann"]); // ann was booked by another opening
+  const status = await until(handle, (s) => s.phase === "offer_out", "first offer");
+  assert.equal(holder(status), "bo"); // ann is skipped even though she joined first
+  assert.equal(states(status).ann, "already_booked");
+  await handle.signal(cancelOpeningSignal, {});
+  await handle.result();
+});
+
+test("accepting marks the request fulfilled, and a client who cancels goes back on the waiting list", async () => {
+  const handle = await start();
+  await until(handle, (s) => holder(s) === "ann", "offer to ann");
+  await handle.signal(replySignal, { entryId: "ann", accept: true });
+  const filled = await until(handle, (s) => s.phase === "filled" && s.messages.some((m) => m.kind === "front_desk"), "filled");
+  assert.equal(fulfilled.get("ann"), filled.openingId); // marked fulfilled by this opening
+  await handle.signal(cancelBookingSignal, { reason: "client_canceled" });
+  await until(handle, (s) => holder(s) === "bo", "reopened for bo");
+  assert.equal(fulfilled.has("ann"), false); // her request is unmet again
+  await handle.signal(cancelOpeningSignal, {});
+  await handle.result();
+});
+
+test("a question is flagged for staff and is never treated as acceptance", async () => {
+  const handle = await start();
+  await until(handle, (s) => holder(s) === "ann", "offer to ann");
+  await handle.signal(questionSignal, { entryId: "ann", note: "Can I bring my daughter?" });
+  const flagged = await until(handle, (s) => s.messages.some((m) => m.text.startsWith("NEEDS STAFF")), "staff flagged");
+  assert.equal(flagged.phase, "offer_out"); // not filled
+  assert.equal(holder(flagged), "ann"); // still her offer, timer still running
+  assert.equal(flagged.people.find((p) => p.entryId === "ann")?.flag?.note, "Can I bring my daughter?");
+  assert.ok(flagged.messages.some((m) => m.kind === "front_desk" && m.text.includes("NOT treated as a yes")));
+  assert.equal(flagged.messages.filter((m) => m.text.includes("confirmed")).length, 0);
+  assert.equal(fulfilled.has("ann"), false);
+  // a question from someone who does not hold the offer changes nothing about who holds it
+  await handle.signal(questionSignal, { entryId: "bo", note: "Is the slot still open?" });
+  const both = await until(handle, (s) => s.people.find((p) => p.entryId === "bo")?.flag !== undefined, "bo flagged");
+  assert.equal(holder(both), "ann");
+  // she can still give a clear answer afterwards
+  await handle.signal(replySignal, { entryId: "ann", accept: true });
+  await until(handle, (s) => s.phase === "filled" && s.filledBy?.entryId === "ann", "ann accepted after her question");
+  await handle.signal(markBookedSignal);
+  await handle.result();
 });
 
 test("a late yes after the slot is taken gets a quick 'already taken' message and stays on the waitlist", async () => {

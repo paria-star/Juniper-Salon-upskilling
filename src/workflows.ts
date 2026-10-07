@@ -17,6 +17,7 @@ import type {
   OpeningStatus,
   Phase,
   PersonRow,
+  QuestionInput,
   ReplyInput,
 } from "./types";
 
@@ -33,6 +34,7 @@ const act = proxyActivities<typeof activities>({
 export const replySignal = defineSignal<[ReplyInput]>("reply"); // a client accepts or declines
 export const cancelOpeningSignal = defineSignal<[CancelInput]>("cancelOpening"); // staff stop the process
 export const skipCurrentSignal = defineSignal("skipCurrent"); // staff skip the person who holds the offer
+export const questionSignal = defineSignal<[QuestionInput]>("question"); // a client replies with something that is not a clear yes or no
 export const sendNowSignal = defineSignal("sendNow"); // staff override the texting-hours pause
 export const markBookedSignal = defineSignal("markBooked"); // front desk put the person on the real calendar
 export const cancelBookingSignal = defineSignal<[CancelBookingInput]>("cancelBooking"); // accepted client cancels / stylist unavailable
@@ -103,6 +105,9 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
     const row = rowOf(entryId);
     const opening = { service: input.service, stylist: stylistLabel, startsAt: input.startsAt, durationMinutes };
     if (!row) return { status: "not_found", message: "We could not find this offer." };
+    if (s.offer?.entryId === entryId && row.flag) {
+      return { status: "open", message: "We've passed your question to our staff, who will follow up with you. Your offer stays open until the deadline.", opening, expiresAt: new Date(s.offer.expiresAtMs).toISOString(), flagged: true };
+    }
     if (s.offer?.entryId === entryId) {
       return { status: "open", message: "This opening is yours if you reply before the deadline.", opening, expiresAt: new Date(s.offer.expiresAtMs).toISOString() };
     }
@@ -130,7 +135,9 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
         s.phase = "filled";
         s.filledBy = { entryId, name: person.name };
         s.summary = `${person.name} accepted. The front desk has been asked to add them to the calendar.`;
-        await textClient(entryId, `You're confirmed for ${input.service} with ${stylistLabel} on ${when}. We'll see you then! - Juniper Salon`);
+        // Mark their request fulfilled right away so no other opening offers them a second slot for it.
+        await act.markFulfilled({ entryId, openingId: input.openingId });
+        await textClient(entryId, `You're confirmed for ${input.service} with ${stylistLabel} on ${when}. We'll see you then! We've taken you off the waitlist for this request. - Juniper Salon`);
         await tellFrontDesk(`FILLED: please add ${person.name} (${person.phone}) to the calendar: ${input.service} with ${stylistLabel} on ${when}.`);
       } else {
         row.state = "declined";
@@ -146,6 +153,24 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
       await textClient(entryId, "That offer has expired. You're still on our waitlist for the next opening. - Juniper Salon");
     } else {
       await textClient(entryId, "That opening is no longer available. You're still on our waitlist. - Juniper Salon");
+    }
+  });
+
+  // Lena: a reply that is not a clear yes or no "should flag that for staff rather than treating it as acceptance.
+  // We can answer questions or follow up ourselves." It never changes who holds the offer, and the timer keeps running.
+  setHandler(questionSignal, async ({ entryId, note }: QuestionInput) => {
+    const row = rowOf(entryId);
+    const person = byId.get(entryId);
+    if (!row || !person || isOver()) return;
+    const text = (note ?? "").trim().slice(0, 280) || "(no message)";
+    const holdsOffer = s.phase === "offer_out" && s.offer?.entryId === entryId;
+    row.flag = { note: text, at: nowIso() };
+    if (holdsOffer && s.offer) {
+      s.summary = `${person.name} replied with a question. Staff need to follow up. This was NOT treated as a yes, and the offer stays open until their time runs out.`;
+      await textClient(entryId, `Thanks! A member of our staff will follow up with you. Your offer stays open until ${formatClock(s.offer.expiresAtMs, offset)}. - Juniper Salon`);
+      await tellFrontDesk(`NEEDS STAFF: ${person.name} (${person.phone}) replied with a question about the ${input.service} opening on ${when}: "${text}". This was NOT treated as a yes. Please follow up. Their offer is open until ${formatClock(s.offer.expiresAtMs, offset)}.`);
+    } else {
+      await tellFrontDesk(`NEEDS STAFF: ${person.name} (${person.phone}) replied with a question about the ${input.service} opening on ${when}, which is no longer offered to them: "${text}". Please follow up.`);
     }
   });
 
@@ -190,6 +215,8 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
     const row = rowOf(who.entryId);
     if (row) row.state = "booking_canceled";
     s.filledBy = undefined;
+    // Their request is unmet again, so they go back on the waiting list for other openings.
+    await act.releaseEntry({ entryId: who.entryId, openingId: input.openingId });
     await textClient(who.entryId, `Your ${input.service} appointment on ${when} is no longer available. We're sorry about that. - Juniper Salon`);
     if (reason === "stylist_unavailable") {
       s.phase = "canceled";
@@ -224,6 +251,13 @@ export async function openingWorkflow(input: OpeningInput): Promise<OpeningStatu
         s.sendNow = false;
         await condition(() => s.sendNow || isOver(), opensAt - now);
         if (isOver()) return;
+      }
+
+      // Another opening may have fulfilled this person's request while we were waiting.
+      if (!(await act.isStillWaiting({ entryId: person.id }))) {
+        row.state = "already_booked";
+        row.at = nowIso();
+        continue;
       }
 
       const start = Date.now();
